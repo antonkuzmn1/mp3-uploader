@@ -1,0 +1,35 @@
+networks:
+  scire:
+    external: true
+
+x-common: &common
+  env_file: .env
+  volumes:
+    - './storage:/app/storage'
+  restart: unless-stopped
+  networks:
+    - scire
+  dns:
+    - 8.8.8.8
+    - 8.8.4.4
+
+services:
+  telegram:
+    <<: *common
+    image: docker.antonkuzm.in/mp3-uploader/telegram:0.1.0
+    container_name: mp3-uploader-telegram
+
+  api:
+    <<: *common
+    image: docker.antonkuzm.in/mp3-uploader/api:0.1.0
+    container_name: mp3-uploader-api
+
+  nginx:
+    image: nginx:alpine
+    container_name: mp3-uploader-nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./storage:/app/storage:ro
+    restart: unless-stopped
+    networks:
+      - scire
