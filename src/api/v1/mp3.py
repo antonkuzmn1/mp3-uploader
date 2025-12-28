@@ -17,7 +17,7 @@ async def upload_mp3(file: UploadFile = File(...)):
 
     if not file.filename.endswith('.mp3'):
         msg = 'File type not supported'
-        raise HTTPException(status_code=status.HTTP_415, detail=msg)
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=msg)
 
     file_size_mb = file.size / 1024 / 1024
     if file_size_mb > 48:
