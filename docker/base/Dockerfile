@@ -8,6 +8,8 @@ RUN apt-get update && \
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
+RUN export PATH="$HOME/.local/bin:$PATH"
+
 COPY pyproject.toml uv.lock ./
 
 RUN uv install
