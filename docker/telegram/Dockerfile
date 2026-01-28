@@ -1,4 +1,4 @@
-FROM docker.antonkuzm.in/mp3-uploader/base:latest
+FROM docker.xqwke.com/mp3-uploader/base:latest
 
 COPY src/ ./src/
 RUN rm -rf ./src/api
