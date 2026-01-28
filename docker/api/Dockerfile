@@ -1,4 +1,4 @@
-FROM docker.antonkuzm.in/mp3-uploader/base:0.1.0
+FROM docker.antonkuzm.in/mp3-uploader/base:latest
 
 COPY src/ ./src/
 RUN rm -rf ./src/telegram
