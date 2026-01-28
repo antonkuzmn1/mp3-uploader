@@ -42,7 +42,6 @@ jobs:
           cd ${{ vars.PATH }}
           docker compose down
           docker compose up -d --remove-orphans
-          docker exec -it nginx nginx -s reload
 
       - name: Cleanup old Docker images
         run: docker image prune -af || true
