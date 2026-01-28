@@ -52,6 +52,9 @@ async def download_audio(url: str, path: str, bitrate: int = 128):
             {'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': str(bitrate)},
             {'key': 'FFmpegMetadata'},
         ],
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
     }
 
     def blocking_download():
