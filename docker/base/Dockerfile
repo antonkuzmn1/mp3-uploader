@@ -3,8 +3,7 @@ WORKDIR /app
 LABEL authors="antonkuzmn1"
 
 RUN apt-get update && \
-    apt-get install -y ffmpeg curl && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y ffmpeg curl \
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
