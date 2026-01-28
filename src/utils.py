@@ -13,8 +13,19 @@ executor = ThreadPoolExecutor(max_workers=2)
 
 def get_id_from_url(url: str) -> str | None:
     parsed = urlparse(url)
+
     qs = parse_qs(parsed.query)
-    return qs.get('v', [None])[0]
+    if 'v' in qs:
+        return qs['v'][0]
+
+    if parsed.netloc in ('youtu.be', 'www.youtu.be'):
+        return parsed.path.lstrip('/')
+
+    return None
+
+
+def get_url_by_id(video_id: str) -> str:
+    return f'https://www.youtube.com/watch?v={video_id}'
 
 
 async def run_blocking(func):

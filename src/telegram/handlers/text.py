@@ -21,6 +21,7 @@ async def handle_message(message: Message):
     logger.info(f'[handle_message] {username}: {message.text}')
     url = message.text
     video_id = utils.get_id_from_url(url)
+    formatted_url = utils.get_url_by_id(video_id)
 
     answer_status: Message | None = None
     try:
@@ -36,16 +37,16 @@ async def handle_message(message: Message):
             await message.answer_audio(
                     audio=FSInputFile(f'{path}.mp3'),
                     thumb=FSInputFile(f'{path}.jpg'),
-                    caption=f'{url}\n{config.MP3_STORAGE_URL}{video_id}.mp3',
+                    caption=f'{formatted_url}\n{config.MP3_STORAGE_URL}{video_id}.mp3',
             )
             logger.info(f'[handle_message] Reply to {username}: {f'{video_id}.mp3'}')
             raise TelegramError()
 
-        text_status = f'answer to @{username}\n\nsource: {url}\n\n[1/3] downloadng...'
+        text_status = f'answer to @{username}\n\nsource: {formatted_url}\n\n[1/3] downloadng...'
         answer_status = await message.answer(text_status, disable_web_page_preview=False)
         logger.info(f'[handle_message] Reply to {username}: downloading {f'{video_id}.mp3'}')
 
-        info = await download_audio(url, path)
+        info = await download_audio(formatted_url, path)
 
         title = info.get('title')
         uploader = info.get('uploader')
@@ -62,7 +63,7 @@ async def handle_message(message: Message):
 
         file_size_mb = os.path.getsize(f'{path}.mp3') / 1024 / 1024
         if file_size_mb > 48:
-            msg = f'file "{title}" too big ({math.floor(file_size_mb)}MB > 48MB)\n\n{url}'
+            msg = f'file "{title}" too big ({math.floor(file_size_mb)}MB > 48MB)\n\n{formatted_url}'
             await message.answer(msg, disable_web_page_preview=False)
             logger.info(f'[handle_message] Reply to {username}: {msg}')
 
@@ -76,7 +77,7 @@ async def handle_message(message: Message):
                 thumb=FSInputFile(f'{path}.jpg'),
                 title=title,
                 duration=int(info.get('duration', 0)),
-                caption=f'{url}\n{config.MP3_STORAGE_URL}{video_id}.mp3',
+                caption=f'{formatted_url}\n{config.MP3_STORAGE_URL}{video_id}.mp3',
                 performer=uploader,
             )
             logger.info(f'[handle_message] Reply to {username}: {f'{video_id}.mp3'}')
@@ -85,7 +86,7 @@ async def handle_message(message: Message):
     except yt_dlp.utils.DownloadError as e:
         if 'confirm your age' in str(e):
             await message.answer(
-                f'downloading this video is not permitted cuz it is age-restricted on yt\n\n{url}',
+                f'downloading this video is not permitted cuz it is age-restricted on yt\n\n{formatted_url}',
                 disable_web_page_preview=False,
             )
         else:

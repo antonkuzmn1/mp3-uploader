@@ -16,6 +16,7 @@ router = APIRouter(prefix='/v1/youtube', tags=['YouTube'])
 async def upload_youtube(data: YouTubeRequest):
     logger.info(f'[upload_youtube] Requested Video ID: {data.url}')
     video_id = utils.get_id_from_url(data.url)
+    formatted_url = utils.get_url_by_id(video_id)
 
     if video_id is None:
         msg_base = f'Incorrect YT URL link: {data.url}'
@@ -35,7 +36,7 @@ async def upload_youtube(data: YouTubeRequest):
 
     logger.info(f'[upload_youtube] {video_id}: downloading...')
     try:
-        info = await download_audio(data.url, path)
+        info = await download_audio(formatted_url, path)
     except ValueError as e:
         msg = str(e)
         if msg == 'Video is longer than 1 hour':
