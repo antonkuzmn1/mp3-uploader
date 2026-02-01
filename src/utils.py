@@ -63,11 +63,14 @@ async def download_audio(url: str, path: str, bitrate: int = 128):
             {'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': str(bitrate)},
             {'key': 'FFmpegMetadata'},
         ],
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android'],
+            }
+        },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://www.youtube.com/',
-        }
+            'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 14)',
+        },
     }
 
     def blocking_download():
