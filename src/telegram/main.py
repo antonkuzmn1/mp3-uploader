@@ -6,14 +6,14 @@ from aiogram.enums import ParseMode
 from dotenv import load_dotenv
 
 from src import logger, config
-from src.telegram.handlers import audio_router, text_router
+from src.telegram.handlers import audio_router, text_router, buttons_router
 from src.telegram.middleware import AccessPermissionMiddleware
 
 load_dotenv()
 
 dp = Dispatcher()
 dp.message.middleware(AccessPermissionMiddleware())
-dp.include_routers(audio_router, text_router)
+dp.include_routers(audio_router, text_router, buttons_router)
 
 
 async def start():

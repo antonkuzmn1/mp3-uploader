@@ -11,7 +11,7 @@ from src import logger
 executor = ThreadPoolExecutor(max_workers=2)
 
 
-def get_id_from_url(url: str) -> str | None:
+def get_v_id(url: str) -> str | None:
     parsed = urlparse(url)
 
     qs = parse_qs(parsed.query)
@@ -24,8 +24,23 @@ def get_id_from_url(url: str) -> str | None:
     return None
 
 
-def get_url_by_id(video_id: str) -> str:
+def get_list_id(url: str) -> str | None:
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+    list_id = qs.get('list', [None])[0]
+
+    if list_id is not None and not list_id.startswith('RD'):
+        return list_id
+
+    return None
+
+
+def get_url_by_v_id(video_id: str) -> str:
     return f'https://www.youtube.com/watch?v={video_id}'
+
+
+def get_url_by_list_id(list_id: str) -> str:
+    return f'https://www.youtube.com/playlist?list={list_id}'
 
 
 async def run_blocking(func):
@@ -34,23 +49,28 @@ async def run_blocking(func):
     return await loop.run_in_executor(executor, func)
 
 
-async def download_audio(url: str, path: str, bitrate: int = 128):
-    def get_info():
-        ydl_opts_intelligence = {'quiet': True, 'no_warnings': True}
+async def get_info(url: str) -> dict:
+    ydl_opts_intelligence = {'quiet': True, 'no_warnings': True}
+    def blocking_get_info():
         with yt_dlp.YoutubeDL(ydl_opts_intelligence) as ydl:
             return ydl.extract_info(url, download=False)
+    return await run_blocking(blocking_get_info)
 
+
+async def verify_audio_duration(url: str, duration_limit: int = 3600):
     logger.info(f'[download_audio] Reconnaissance is underway...')
-    info = await run_blocking(get_info)
+    info = await get_info(url)
     duration = info.get('duration')
     logger.info(f'[download_audio] Reconnaissance result: {duration} seconds')
 
     if duration is None:
         raise ValueError('The video`s length could not be determined, but it may be a live broadcast')
 
-    if duration is not None and duration > 3600:
+    if duration is not None and duration > duration_limit:
         raise ValueError('Video is longer than 1 hour')
 
+
+async def download_audio(url: str, path: str, bitrate: int = 128):
     ydl_opts = {
         'format': 'bestaudio/best',
         'noplaylist': True,

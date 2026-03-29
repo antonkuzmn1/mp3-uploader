@@ -15,8 +15,8 @@ router = APIRouter(prefix='/v1/youtube', tags=['YouTube'])
 @router.post('/')
 async def upload_youtube(data: YouTubeRequest):
     logger.info(f'[upload_youtube] Requested Video ID: {data.url}')
-    video_id = utils.get_id_from_url(data.url)
-    formatted_url = utils.get_url_by_id(video_id)
+    video_id = utils.get_v_id(data.url)
+    formatted_url = utils.get_url_by_v_id(video_id)
 
     if video_id is None:
         msg_base = f'Incorrect YT URL link: {data.url}'
