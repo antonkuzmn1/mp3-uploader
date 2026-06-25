@@ -57,7 +57,7 @@ async def get_info(url: str) -> dict:
     return await run_blocking(blocking_get_info)
 
 
-async def verify_audio_duration(url: str, duration_limit: int = 3600):
+async def verify_audio_duration(url: str, duration_limit: int = 3600 * 6):
     logger.info(f'[download_audio] Reconnaissance is underway...')
     info = await get_info(url)
     duration = info.get('duration')
