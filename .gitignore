@@ -3,3 +3,6 @@ build
 .idea
 .env
 storage
+.DS_Store
+AGENTS.local.md
+*.local.md
