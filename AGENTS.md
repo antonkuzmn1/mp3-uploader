@@ -26,6 +26,7 @@ Telegram bot and HTTP API that download audio (YouTube via `yt-dlp`, or files se
 - `uv sync` — install dependencies into `.venv`.
 - `uv run python -m src.telegram.main` — run the bot.
 - `uv run uvicorn src.api.main:app --reload` — run the API on port 8000.
+- `docker build -t mp3-uploader .` — build the production image.
 - Configuration comes from `.env` (template: `.env.template`); `ffmpeg` must be on `PATH`.
 
 ## Architecture
@@ -34,10 +35,12 @@ Telegram bot and HTTP API that download audio (YouTube via `yt-dlp`, or files se
 - `src/utils.py` — shared download/convert helpers around `yt-dlp` and `ffmpeg`.
 - `src/telegram/` — aiogram bot: `main.py` (polling entry point), `middleware/access_permission.py` (allow-list), `handlers/` (`text` — links, `audio` — uploaded files, `buttons` — single video vs playlist callbacks), `common.py` (download and reply).
 - `src/api/` — FastAPI app under `/api/v1`: `youtube` (POST a link → MP3 URL + thumbnail), `mp3` (POST a file → MP3 URL). No authentication.
-- Files are named by YouTube video id or Telegram file id and served from `STORAGE_DIR` by a separate nginx container (`nginx.conf`, autoindex on).
+- Files are named by YouTube video id or Telegram file id and served from `STORAGE_DIR` as static files by nginx.
 
-## Deployment (current, legacy)
+## Deployment
 
-- `docker/base/Dockerfile` — Python + ffmpeg + dependencies; `docker/api` and `docker/telegram` build on top of it (`FROM <registry>/mp3-uploader/base:latest`).
-- `docker-compose.yml` — `telegram`, `api`, `nginx` sharing `./storage`, on the external network `xqwke`, images from a private registry.
-- `.github/workflows/deploy.yml` — self-hosted runner builds and pushes all images, copies the compose file to `vars.PATH` and restarts it.
+- `Dockerfile` — one image (`python:3.14-slim` + ffmpeg + `uv sync --frozen --no-dev`) for both processes, runs as uid 10001; default command is the bot.
+- `deploy/compose.yaml` — production stack `mp3-uploader`: image `ghcr.io/antonkuzmn1/mp3-uploader:${IMAGE_TAG}`; `telegram` (bot), `api` (under the `api` profile, disabled until it gets authentication; would be routed to `mp3-uploader.xqwke.com`), `storage` (nginx, autoindex off, inline config, routed to `mp3-storage.xqwke.com`). Public services join the external Docker network `proxy` of the Traefik gateway and are routed by `Host(...)` labels.
+- Server directory `/srv/apps/mp3-uploader`: `compose.yaml` and `.env` (`IMAGE_TAG`) are rewritten on every deploy; `app.env` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_PERMITTED_IDS`) and `storage/` (owned by uid 10001) are created by the separate infra repo and never touched by deploys. Non-secret settings live in the compose file.
+- Two ways to deploy the same files: the infra playbook (bootstrap or reset: downloads `deploy/compose.yaml` from `main`, uses `IMAGE_TAG=latest`) and CI (every push to `main`).
+- `.github/workflows/ci.yml` — on PRs and pushes: `uv sync`, byte-compile, import both entry points, validate the compose file. On pushes to `main` it builds the image and pushes it to GHCR tagged with the full commit SHA and `latest`, then SSHes to the server as the `deploy` user: the forced command (`deploy-app mp3-uploader`, from the infra repo) takes the image tag as the command and `deploy/compose.yaml` on stdin. Secrets (environment `production`): `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS` (`ssh-keyscan -p <port> <host>`).
