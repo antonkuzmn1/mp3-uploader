@@ -9,7 +9,7 @@ from urllib.parse import urlparse, parse_qs
 
 import yt_dlp
 from mutagen.id3 import (
-    APIC, COMM, ID3, ID3NoHeaderError, TALB, TDRC, TIT2, TPE1, TPE2, TRCK, WOAS,
+    APIC, COMM, ID3, ID3NoHeaderError, TALB, TDRC, TIT2, TPE1, TPE2, TRCK, TXXX, WOAS,
 )
 from mutagen.mp3 import MP3
 
@@ -109,6 +109,11 @@ async def download_audio(url: str, path: str, bitrate: int = 128):
     return await run_blocking(blocking_download)
 
 
+# Bump the version whenever tagging rules change so cached files get re-tagged.
+TAGGER_MARKER = 'mp3-uploader'
+TAGGER_VERSION = '1'
+
+
 @dataclass
 class TrackMeta:
     title: str
@@ -194,6 +199,13 @@ def meta_from_info(info: dict) -> TrackMeta:
     )
 
 
+def display_filename(meta: TrackMeta | None) -> str | None:
+    if meta is None:
+        return None
+    name = meta.title if meta.artist in (None, '', 'Unknown') else f'{meta.artist} - {meta.title}'
+    return f"{name.replace('/', '_')}.mp3"
+
+
 def read_meta(mp3_path: str) -> TrackMeta | None:
     try:
         audio = MP3(mp3_path)
@@ -244,7 +256,17 @@ def write_tags(
         with open(cover_path, 'rb') as f:
             tags.setall('APIC', [APIC(encoding=3, mime='image/jpeg', type=3, desc='Cover', data=f.read())])
 
+    tags.setall(f'TXXX:{TAGGER_MARKER}', [TXXX(encoding=3, desc=TAGGER_MARKER, text=TAGGER_VERSION)])
     tags.save(mp3_path, v2_version=3)
+
+
+def is_tagged(mp3_path: str) -> bool:
+    """True if the file was tagged by the current tagging logic (not by older code)."""
+    try:
+        frame = ID3(mp3_path).get(f'TXXX:{TAGGER_MARKER}')
+    except ID3NoHeaderError:
+        return False
+    return bool(frame) and frame.text[0] == TAGGER_VERSION
 
 
 def _square_jpeg(src: str, dst: str, size: int):
@@ -309,24 +331,40 @@ async def make_thumbnail(mp3_path: str) -> bytes | None:
     return await run_blocking(blocking)
 
 
-async def upgrade_legacy(path: str):
-    """Older downloads kept the cover as a separate .jpg; embed it and drop the file."""
+async def upgrade_legacy(path: str, url: str):
+    """Bring a cached MP3 made by older code up to date.
+
+    Embeds a leftover .jpg cover and, if the file lacks current tags, re-reads
+    the video info (no download) and re-tags it.
+    """
+    mp3 = f'{path}.mp3'
     legacy = f'{path}.jpg'
-    if not os.path.isfile(legacy) or not os.path.isfile(f'{path}.mp3'):
+    if not os.path.isfile(mp3):
         return
 
-    def blocking():
+    def embed_legacy_cover():
         try:
-            tags = ID3(f'{path}.mp3')
+            tags = ID3(mp3)
         except ID3NoHeaderError:
             tags = ID3()
         if not tags.getall('APIC'):
             with open(legacy, 'rb') as f:
                 tags.add(APIC(encoding=3, mime='image/jpeg', type=3, desc='Cover', data=f.read()))
-            tags.save(f'{path}.mp3', v2_version=3)
+            tags.save(mp3, v2_version=3)
         os.remove(legacy)
 
-    await run_blocking(blocking)
+    if os.path.isfile(legacy):
+        await run_blocking(embed_legacy_cover)
+
+    if not is_tagged(mp3):
+        try:
+            info = await get_info(url)
+        except Exception as e:
+            logger.info(f'[upgrade_legacy] could not re-tag {mp3}: {e}')
+            return
+        meta = meta_from_info(info)
+        # Existing APIC is kept: write_tags only replaces frames it is given.
+        await run_blocking(lambda: write_tags(mp3, meta))
 
 
 async def make_playlist_copy(path: str, playlist: PlaylistContext) -> str:

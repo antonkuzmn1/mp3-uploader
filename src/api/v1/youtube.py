@@ -30,7 +30,7 @@ async def upload_youtube(data: YouTubeRequest):
         'result': f'{config.MP3_STORAGE_URL}{video_id}.mp3',
     }
     if os.path.isfile(f'{path}.mp3'):
-        await upgrade_legacy(path)
+        await upgrade_legacy(path, formatted_url)
         logger.info(f'[upload_youtube] Return: {video_id}.mp3')
         return successfully_response
 
