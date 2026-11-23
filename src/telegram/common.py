@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Awaitable, Callable
 import math
 import os
 import traceback
@@ -38,32 +39,55 @@ async def send_track(
             os.remove(audio_path)
 
 
+Gate = Callable[[], Awaitable[None]]
+
+
+async def _no_gate():
+    pass
+
+
 async def send_track_if_already_exists(
-    message: Message, v_id: str, url: str, path: str, playlist: utils.PlaylistContext | None = None,
+    message: Message,
+    v_id: str,
+    url: str,
+    path: str,
+    playlist: utils.PlaylistContext | None = None,
+    gate: Gate = _no_gate,
 ):
     username = message.from_user.username
     if os.path.isfile(f'{path}.mp3'):
         await utils.upgrade_legacy(path, url)
+        await gate()
         await send_track(message, v_id, url, path, playlist)
         logger.info(f'[send_track_if_already_exists] Reply to {username}: {f'{v_id}.mp3'}')
         raise TelegramError()
 
 
-async def download_single_track(message: Message, v_id: str, playlist: utils.PlaylistContext | None = None):
+async def download_single_track(
+    message: Message,
+    v_id: str,
+    playlist: utils.PlaylistContext | None = None,
+    gate: Gate = _no_gate,
+):
+    """Download and send one track.
+
+    `gate` is awaited right before the final reply (the track or an error), so a
+    playlist can download tracks in parallel but reply in playlist order.
+    """
     username = message.from_user.username
     url = utils.get_url_by_v_id(v_id)
 
     answer_status: Message | None = None
     try:
         path = f'{config.STORAGE_DIR}/{v_id}'
-        await send_track_if_already_exists(message, v_id, url, path, playlist)
+        await send_track_if_already_exists(message, v_id, url, path, playlist, gate)
 
         text_status = f'source: {url}\n\nawaiting...'
         answer_status = await message.answer(text_status, disable_web_page_preview=False)
         logger.info(f'[download_single_track] Reply to {username}: awaiting {f'{v_id}.mp3'}')
         await utils.verify_audio_duration(url)
 
-        await send_track_if_already_exists(message, v_id, url, path, playlist)
+        await send_track_if_already_exists(message, v_id, url, path, playlist, gate)
         text_status += f'\n[1/3] downloadng...'
         await answer_status.edit_text(text_status, disable_web_page_preview=False)
         logger.info(f'[download_single_track] Reply to {username}: downloading {f'{v_id}.mp3'}')
@@ -82,6 +106,7 @@ async def download_single_track(message: Message, v_id: str, playlist: utils.Pla
         logger.info(f'[download_single_track] Reply to {username}: sending {f'{v_id}.mp3'}')
 
         file_size_mb = os.path.getsize(f'{path}.mp3') / 1024 / 1024
+        await gate()
         if file_size_mb > 48:
             msg = f'file "{title}" too big ({math.floor(file_size_mb)}MB > 48MB)\n\n{url}'
             await message.answer(msg, disable_web_page_preview=False)
@@ -95,6 +120,7 @@ async def download_single_track(message: Message, v_id: str, playlist: utils.Pla
 
 
     except yt_dlp.utils.DownloadError as e:
+        await gate()
         if 'confirm your age' in str(e):
             await message.answer(
                 f'downloading this video is not permitted cuz it is age-restricted on yt\n\n{url}',
@@ -108,6 +134,7 @@ async def download_single_track(message: Message, v_id: str, playlist: utils.Pla
             logger.info(f'[download_single_track] Reply to {username}: {msg}')
 
     except TypeError:
+        await gate()
         traceback.print_exc()
         msg = 'something went wrong :('
         msg += f'\n{url}'
@@ -115,6 +142,7 @@ async def download_single_track(message: Message, v_id: str, playlist: utils.Pla
         logger.info(f'[download_single_track] Reply to {username}: {msg}')
 
     except ValueError as e:
+        await gate()
         if str(e) == 'Video is longer than 1 hour':
             msg = 'video is longer than 1 hour'
         elif str(e) == 'The video`s length could not be determined, but it may be a live broadcast':
@@ -157,21 +185,41 @@ async def download_playlist(message: Message, list_id: str, max_concurrent_downl
     entries = list(entries)
     playlist_title = info.get('title') or list_id
     playlist_artist = utils._clean_artist(info.get('uploader') or info.get('channel'))
+    # sent[i] is set once track i has replied, so track i + 1 may reply next.
+    sent = [asyncio.Event() for _ in entries]
 
     async def worker(index: int, entry: dict):
-        v_id = entry.get('id')
-        if not v_id:
-            return
+        released = False
 
-        playlist = utils.PlaylistContext(
-            title=playlist_title, index=index, total=len(entries), artist=playlist_artist,
-        )
-        async with semaphore:
-            await download_single_track(message, v_id, playlist)
-            await asyncio.sleep(1)
+        async def gate():
+            # Free the download slot while waiting, so later tracks keep downloading.
+            nonlocal released
+            if released:
+                return
+            released = True
+            semaphore.release()
+            if index > 0:
+                await sent[index - 1].wait()
 
-    tasks = [worker(i, entry) for i, entry in enumerate(entries, start=1)]
-    await asyncio.gather(*tasks)
+        await semaphore.acquire()
+        try:
+            v_id = entry.get('id')
+            if not v_id:
+                await gate()
+                return
+            playlist = utils.PlaylistContext(
+                title=playlist_title, index=index + 1, total=len(entries), artist=playlist_artist,
+            )
+            await download_single_track(message, v_id, playlist, gate)
+        except Exception:
+            traceback.print_exc()
+            await gate()
+        finally:
+            if not released:
+                await gate()
+            sent[index].set()
+
+    await asyncio.gather(*(worker(i, entry) for i, entry in enumerate(entries)))
 
     text_status += f'\nsuccessfully success!'
     await answer_status.edit_text(text_status, disable_web_page_preview=False)
