@@ -133,15 +133,55 @@ def _clean_artist(name: str | None) -> str | None:
     return name
 
 
+# Exact, case-insensitive suffixes YouTube channels append to music videos.
+# A fixed list instead of a regex, so a real title is never cut by a guess.
+_TITLE_NOISE = {
+    f'{open_}{label}{close}'
+    for open_, close in (('(', ')'), ('[', ']'))
+    for label in (
+        'official video', 'official music video', 'official audio', 'official lyric video',
+        'official lyrics video', 'official visualizer', 'official visualiser', 'lyric video',
+        'lyrics video', 'lyrics', 'visualizer', 'visualiser', 'audio', 'official', 'music video',
+        'official hd video', 'hd', '4k', 'official 4k video',
+    )
+}
+
+
+def _clean_title(title: str, artist: str | None) -> str:
+    """Remove only what is known for sure: the artist's own name as a prefix and listed suffixes."""
+    cleaned = title.strip()
+
+    changed = True
+    while changed:
+        changed = False
+        for noise in _TITLE_NOISE:
+            if cleaned.lower().endswith(noise) and len(cleaned) > len(noise):
+                cleaned = cleaned[:-len(noise)].rstrip()
+                changed = True
+
+    if artist:
+        for sep in (' - ', ' – ', ' — '):
+            prefix = f'{artist}{sep}'
+            if cleaned.lower().startswith(prefix.lower()) and len(cleaned) > len(prefix):
+                cleaned = cleaned[len(prefix):].strip()
+                break
+
+    return cleaned or title
+
+
 def meta_from_info(info: dict) -> TrackMeta:
     """Prefer YouTube Music fields (track/artist/album) over generic video fields."""
-    title = info.get('track') or info.get('title') or info.get('id') or 'Unknown'
+    track = info.get('track')
     artist = (
         info.get('artist')
         or info.get('creator')
         or _clean_artist(info.get('uploader'))
         or 'Unknown'
     )
+    if track:
+        title = track
+    else:
+        title = _clean_title(info.get('title') or info.get('id') or 'Unknown', artist)
     # yt-dlp may return several comma-separated artists; keep them as-is.
     year = info.get('release_year') or (info.get('upload_date') or '')[:4] or None
     return TrackMeta(
