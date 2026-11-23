@@ -5,7 +5,7 @@ import traceback
 from asyncio import sleep
 
 import yt_dlp
-from aiogram.types import Message, FSInputFile
+from aiogram.types import BufferedInputFile, FSInputFile, Message
 
 from src import logger, config
 from src import utils
@@ -23,9 +23,11 @@ async def send_track(
     audio_path = f'{path}.mp3'
     if playlist is not None:
         audio_path = await utils.make_playlist_copy(path, playlist)
+    thumbnail = await utils.make_thumbnail(f'{path}.mp3')
     try:
         await message.answer_audio(
             audio=FSInputFile(audio_path, filename=f'{meta.artist} - {meta.title}.mp3' if meta else None),
+            thumbnail=BufferedInputFile(thumbnail, filename='cover.jpg') if thumbnail else None,
             title=meta.title if meta else None,
             performer=meta.artist if meta else None,
             duration=meta.duration if meta else None,

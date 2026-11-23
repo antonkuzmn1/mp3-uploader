@@ -282,6 +282,33 @@ async def process_downloaded(path: str, meta: TrackMeta):
     await run_blocking(blocking)
 
 
+async def make_thumbnail(mp3_path: str) -> bytes | None:
+    """Build a 320x320 JPEG from the embedded cover in memory.
+
+    The Bot API does not read cover art from the file itself, so the thumbnail
+    has to be sent explicitly; it is never stored on disk.
+    """
+    def blocking():
+        try:
+            covers = ID3(mp3_path).getall('APIC')
+        except ID3NoHeaderError:
+            return None
+        if not covers:
+            return None
+        result = subprocess.run(
+            [
+                'ffmpeg', '-loglevel', 'error', '-i', 'pipe:0',
+                '-vf', "crop='min(iw,ih)':'min(iw,ih)',scale=320:320",
+                '-q:v', '4', '-f', 'mjpeg', 'pipe:1',
+            ],
+            input=covers[0].data,
+            capture_output=True,
+        )
+        return result.stdout or None
+
+    return await run_blocking(blocking)
+
+
 async def upgrade_legacy(path: str):
     """Older downloads kept the cover as a separate .jpg; embed it and drop the file."""
     legacy = f'{path}.jpg'
