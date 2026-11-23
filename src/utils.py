@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -5,7 +6,8 @@ import tempfile
 from dataclasses import dataclass
 from asyncio import get_running_loop
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import urlopen
 
 import yt_dlp
 from mutagen.id3 import (
@@ -63,7 +65,9 @@ async def get_info(url: str, flat: bool = False) -> dict:
         ydl_opts_intelligence['extract_flat'] = 'in_playlist'
     def blocking_get_info():
         with yt_dlp.YoutubeDL(ydl_opts_intelligence) as ydl:
-            return ydl.extract_info(url, download=False)
+            info = ydl.extract_info(url, download=False)
+        _ensure_channel(info)
+        return info
     return await run_blocking(blocking_get_info)
 
 
@@ -104,14 +108,16 @@ async def download_audio(url: str, path: str, bitrate: int = 128):
 
     def blocking_download():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.extract_info(url, download=True)
+            info = ydl.extract_info(url, download=True)
+        _ensure_channel(info)
+        return info
 
     return await run_blocking(blocking_download)
 
 
 # Bump the version whenever tagging rules change so cached files get re-tagged.
 TAGGER_MARKER = 'mp3-uploader'
-TAGGER_VERSION = '1'
+TAGGER_VERSION = '2'
 
 
 @dataclass
@@ -138,6 +144,37 @@ def _clean_artist(name: str | None) -> str | None:
     return name
 
 
+def _normalize(name: str) -> str:
+    return ''.join(ch for ch in name.casefold() if ch.isalnum())
+
+
+def _channel_core(channel: str) -> str:
+    """Channel name without well-known decorations: ' - Topic', 'VEVO', 'Official'."""
+    core = _clean_artist(channel) or ''
+    for suffix in ('vevo', 'official'):
+        if core.casefold().endswith(suffix) and len(core) > len(suffix):
+            core = core[:-len(suffix)]
+    return core
+
+
+def _fetch_channel(url: str) -> str | None:
+    """Channel name via YouTube oEmbed; used when yt-dlp could not read the watch page."""
+    try:
+        query = urlencode({'url': url, 'format': 'json'})
+        with urlopen(f'https://www.youtube.com/oembed?{query}', timeout=10) as response:
+            return json.load(response).get('author_name')
+    except Exception as e:
+        logger.info(f'[_fetch_channel] oEmbed failed for {url}: {e}')
+        return None
+
+
+def _ensure_channel(info: dict | None):
+    if info and info.get('_type', 'video') == 'video' and not (info.get('uploader') or info.get('channel')):
+        url = info.get('webpage_url') or (info.get('id') and get_url_by_v_id(info['id']))
+        if url:
+            info['uploader'] = _fetch_channel(url)
+
+
 # Exact, case-insensitive suffixes YouTube channels append to music videos.
 # A fixed list instead of a regex, so a real title is never cut by a guess.
 _TITLE_NOISE = {
@@ -152,10 +189,8 @@ _TITLE_NOISE = {
 }
 
 
-def _clean_title(title: str, artist: str | None) -> str:
-    """Remove only what is known for sure: the artist's own name as a prefix and listed suffixes."""
+def _strip_noise(title: str) -> str:
     cleaned = title.strip()
-
     changed = True
     while changed:
         changed = False
@@ -163,30 +198,43 @@ def _clean_title(title: str, artist: str | None) -> str:
             if cleaned.lower().endswith(noise) and len(cleaned) > len(noise):
                 cleaned = cleaned[:-len(noise)].rstrip()
                 changed = True
+    return cleaned
 
-    if artist:
-        for sep in (' - ', ' – ', ' — '):
-            prefix = f'{artist}{sep}'
-            if cleaned.lower().startswith(prefix.lower()) and len(cleaned) > len(prefix):
-                cleaned = cleaned[len(prefix):].strip()
-                break
 
-    return cleaned or title
+def _split_artist_prefix(title: str, channel: str | None) -> tuple[str | None, str]:
+    """Split 'Artist - Song' only when 'Artist' is the channel's own name.
+
+    Names are compared ignoring case, spaces and punctuation, so 'FrostChildrenVEVO'
+    matches 'Frost Children'. Anything else is left untouched.
+    """
+    if not channel:
+        return None, title
+    core = _normalize(_channel_core(channel))
+    if not core:
+        return None, title
+    for sep in (' - ', ' – ', ' — '):
+        prefix, found, rest = title.partition(sep)
+        if found and rest.strip() and _normalize(prefix) == core:
+            return prefix.strip(), rest.strip()
+    return None, title
 
 
 def meta_from_info(info: dict) -> TrackMeta:
     """Prefer YouTube Music fields (track/artist/album) over generic video fields."""
+    channel = info.get('uploader') or info.get('channel')
+    artist = info.get('artist') or info.get('creator')
     track = info.get('track')
-    artist = (
-        info.get('artist')
-        or info.get('creator')
-        or _clean_artist(info.get('uploader'))
-        or 'Unknown'
-    )
+
     if track:
         title = track
     else:
-        title = _clean_title(info.get('title') or info.get('id') or 'Unknown', artist)
+        raw = info.get('title') or info.get('id') or 'Unknown'
+        prefix_artist, title = _split_artist_prefix(_strip_noise(raw), artist or channel)
+        title = title or raw
+        # The artist as spelled in the title beats 'FrostChildrenVEVO'.
+        artist = artist or prefix_artist
+
+    artist = artist or _clean_artist(channel) or 'Unknown'
     # yt-dlp may return several comma-separated artists; keep them as-is.
     year = info.get('release_year') or (info.get('upload_date') or '')[:4] or None
     return TrackMeta(
