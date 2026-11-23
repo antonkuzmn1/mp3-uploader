@@ -6,7 +6,7 @@ from starlette import status
 
 from src import utils, logger, config
 from src.api.schemas import YouTubeRequest
-from src.utils import download_audio, convert_thumbnail
+from src.utils import download_audio, meta_from_info, process_downloaded
 
 
 router = APIRouter(prefix='/v1/youtube', tags=['YouTube'])
@@ -47,11 +47,11 @@ async def upload_youtube(data: YouTubeRequest):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=msg)
         raise e
 
-    title = info.get('title')
-    uploader = info.get('uploader')
+    meta = meta_from_info(info)
+    title = meta.title
 
     logger.info(f'[upload_youtube] {video_id}: converting...')
-    await convert_thumbnail(path, title, uploader)
+    await process_downloaded(path, meta)
 
     file_size_mb = os.path.getsize(f'{path}.mp3') / 1024 / 1024
     if file_size_mb > 48:
