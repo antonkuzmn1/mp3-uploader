@@ -32,9 +32,9 @@ Telegram bot and HTTP API that download audio (YouTube via `yt-dlp`, or files se
 ## Architecture
 
 - `src/config.py` — settings from env: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_PERMITTED_IDS` (comma-separated Telegram user ids allowed to use the bot), `STORAGE_DIR` (where MP3s are written), `MP3_STORAGE_URL` (public base URL of that directory, with trailing slash).
-- `src/utils.py` — shared download/convert helpers around `yt-dlp` and `ffmpeg`; writes ID3v2.3 tags and an embedded cover with `mutagen`. Stored MP3s carry only per-track tags; playlist tags (album, track number) go into a temporary copy sent to Telegram, because stored files are shared across requests.
+- `src/utils.py` — shared download/convert helpers around `yt-dlp` and `ffmpeg`; writes ID3v2.3 tags and an embedded cover with `mutagen` (no separate image file; Telegram reads the cover from the MP3). Stored MP3s carry only per-track tags; playlist tags (album, track number) go into a temporary copy sent to Telegram, because stored files are shared across requests.
 - `src/telegram/` — aiogram bot: `main.py` (polling entry point), `middleware/access_permission.py` (allow-list), `handlers/` (`text` — links, `audio` — uploaded files, `buttons` — single video vs playlist callbacks), `common.py` (download and reply).
-- `src/api/` — FastAPI app under `/api/v1`: `youtube` (POST a link → MP3 URL + thumbnail), `mp3` (POST a file → MP3 URL). No authentication.
+- `src/api/` — FastAPI app under `/api/v1`: `youtube` (POST a link → MP3 URL), `mp3` (POST a file → MP3 URL). No authentication.
 - Files are named by YouTube video id or Telegram file id and served from `STORAGE_DIR` as static files by nginx.
 
 ## Deployment

@@ -228,21 +228,36 @@ def _find_thumbnail(path: str) -> str | None:
 
 
 async def process_downloaded(path: str, meta: TrackMeta):
-    """Make a 320px square thumbnail for Telegram/API and embed a 600px cover plus tags into the MP3."""
+    """Embed a 600px square cover and tags into the MP3; no separate image is kept."""
     def blocking():
         src = _find_thumbnail(path)
         cover = f'{path}.cover.jpg'
-        thumb = f'{path}.jpg'
         if src:
             _square_jpeg(src, cover, 600)
-            # Telegram requires thumbnails of at most 320x320.
-            _square_jpeg(src, f'{path}.thumb.jpg', 320)
-            if src != thumb:
-                os.remove(src)
-            os.replace(f'{path}.thumb.jpg', thumb)
+            os.remove(src)
         write_tags(f'{path}.mp3', meta, cover if os.path.isfile(cover) else None)
         if os.path.isfile(cover):
             os.remove(cover)
+
+    await run_blocking(blocking)
+
+
+async def upgrade_legacy(path: str):
+    """Older downloads kept the cover as a separate .jpg; embed it and drop the file."""
+    legacy = f'{path}.jpg'
+    if not os.path.isfile(legacy) or not os.path.isfile(f'{path}.mp3'):
+        return
+
+    def blocking():
+        try:
+            tags = ID3(f'{path}.mp3')
+        except ID3NoHeaderError:
+            tags = ID3()
+        if not tags.getall('APIC'):
+            with open(legacy, 'rb') as f:
+                tags.add(APIC(encoding=3, mime='image/jpeg', type=3, desc='Cover', data=f.read()))
+            tags.save(f'{path}.mp3', v2_version=3)
+        os.remove(legacy)
 
     await run_blocking(blocking)
 

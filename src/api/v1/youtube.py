@@ -6,7 +6,7 @@ from starlette import status
 
 from src import utils, logger, config
 from src.api.schemas import YouTubeRequest
-from src.utils import download_audio, meta_from_info, process_downloaded
+from src.utils import download_audio, meta_from_info, process_downloaded, upgrade_legacy
 
 
 router = APIRouter(prefix='/v1/youtube', tags=['YouTube'])
@@ -28,9 +28,9 @@ async def upload_youtube(data: YouTubeRequest):
     successfully_response = {
         'status': 'ok',
         'result': f'{config.MP3_STORAGE_URL}{video_id}.mp3',
-        'thumbnail': f'{config.MP3_STORAGE_URL}{video_id}.jpg',
     }
-    if os.path.isfile(f'{path}.mp3') and os.path.isfile(f'{path}.jpg'):
+    if os.path.isfile(f'{path}.mp3'):
+        await upgrade_legacy(path)
         logger.info(f'[upload_youtube] Return: {video_id}.mp3')
         return successfully_response
 
@@ -59,8 +59,6 @@ async def upload_youtube(data: YouTubeRequest):
         logger.info(f'[upload_youtube] {video_id}: {msg}')
         if os.path.isfile(f'{path}.mp3'):
             os.remove(f'{path}.mp3')
-        if os.path.isfile(f'{path}.jpg'):
-            os.remove(f'{path}.jpg')
         raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=msg)
 
     logger.info(f'[upload_youtube] Return: {video_id}.mp3')

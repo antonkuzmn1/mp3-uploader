@@ -26,7 +26,6 @@ async def send_track(
     try:
         await message.answer_audio(
             audio=FSInputFile(audio_path, filename=f'{meta.artist} - {meta.title}.mp3' if meta else None),
-            thumb=FSInputFile(f'{path}.jpg') if os.path.isfile(f'{path}.jpg') else None,
             title=meta.title if meta else None,
             performer=meta.artist if meta else None,
             duration=meta.duration if meta else None,
@@ -41,7 +40,8 @@ async def send_track_if_already_exists(
     message: Message, v_id: str, url: str, path: str, playlist: utils.PlaylistContext | None = None,
 ):
     username = message.from_user.username
-    if os.path.isfile(f'{path}.mp3') and os.path.isfile(f'{path}.jpg'):
+    if os.path.isfile(f'{path}.mp3'):
+        await utils.upgrade_legacy(path)
         await send_track(message, v_id, url, path, playlist)
         logger.info(f'[send_track_if_already_exists] Reply to {username}: {f'{v_id}.mp3'}')
         raise TelegramError()
@@ -87,8 +87,6 @@ async def download_single_track(message: Message, v_id: str, playlist: utils.Pla
 
             if os.path.isfile(f'{path}.mp3'):
                 os.remove(f'{path}.mp3')
-            if os.path.isfile(f'{path}.jpg'):
-                os.remove(f'{path}.jpg')
         else:
             await send_track(message, v_id, url, path, playlist)
             logger.info(f'[download_single_track] Reply to {username}: {f'{v_id}.mp3'}')
